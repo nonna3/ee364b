@@ -17,7 +17,19 @@ STOCK_PATHS = ["./AAPL (20240528123000000 _ 20240429063000000).csv",
 N = len(STOCK_PATHS) # number of stocks
 MARKET = -2
 RISK_FREE = -1
+INTEREST = 0.0538
+FREQ = 1 / (365*24*2)  # fraction of a year
+T = 20
 
+def generate_paths():
+    TICKERS = ["AAPL", "ABT", "AMC", "BA", "BITC", "GME", "CVX", "UCO", "UEC", "^GSPC"]
+
+    START_DATE = "2023-05-28"
+    END_DATE = "2024-05-28"
+    path = []
+    for ticker in TICKERS:
+        path.append(f'daily {ticker} {START_DATE}-{END_DATE}.csv')
+    return path
 def load_percent_data(stock_path):
     stock_percent_change = []
     for i in range(len(stock_path)):
@@ -87,7 +99,7 @@ def run_mean_reversion(open_data,close_data,X,T,alpha,display=True):
         plt.show()
     return np.average(np.array(returns)),np.var(np.array(returns))
 
-def run_martingale(X,T,alpha,display=True):
+def run_simple_momentum(X,T,alpha,display=True):
     (num_stocks,num_obs) = X.shape
     if T > num_obs: raise ValueError("T is incompatible with observation")
     returns = []
@@ -130,7 +142,7 @@ def run_weighted_momentum(X,T,alpha,display=True):
         plt.savefig(f'Weighted Momentum,alpha{alpha}')
         plt.show()
     return np.average(np.array(returns)),np.var(np.array(returns))
-def run_martingaleCAPM(X,T,market_return,recency_weight,alpha,display=True):
+def run_CAPM(X,T,market_return,recency_weight,alpha,display=True):
     (num_stocks,num_obs) = X.shape
     if T > num_obs: raise ValueError("T is incompatible with observation")
     returns = []
@@ -168,31 +180,25 @@ def bond(num_obs,interest,freq):
     return arr
 
 # for a fixed alpha
-def run_trial():
-    INTEREST = 0.05
-    FREQ = 1 / (365 * 24 * 2)  # fraction of a year
-    T = 20
+def run_trial(stock_path):
     recency_weight = 0.8
     alpha = 10
-    percent_data = load_percent_data(STOCK_PATHS)
-    open_data = load_open_data(STOCK_PATHS)
-    close_data = load_close_data(STOCK_PATHS)
+    percent_data = load_percent_data(stock_path)
+    open_data = load_open_data(stock_path)
+    close_data = load_close_data(stock_path)
     num_obs = percent_data.shape[1]
     data = np.vstack((percent_data, bond(num_obs, INTEREST, FREQ)))
     MARKET_RETURN = np.average(data[MARKET, T:])
-    #run_martingale(data, T,alpha)
+    #run_simple_momentum(data, T,alpha)
     #run_weighted_momentum(data, T,alpha)
     #run_mean_reversion(open_data,close_data,data, T, alpha)
-    #run_martingaleCAPM(percent_data, T, MARKET_RETURN, recency_weight,alpha)
+    #run_CAPM(percent_data, T, MARKET_RETURN, recency_weight,alpha)
 
-def vary_alpha():
-    INTEREST = 0.05
-    FREQ = 1 / (365 * 24 * 2)  # fraction of a year
-    T = 20
+def vary_alpha(stock_path):
     recency_weight = 0.8
-    percent_data = load_percent_data(STOCK_PATHS)
-    open_data = load_open_data(STOCK_PATHS)
-    close_data = load_close_data(STOCK_PATHS)
+    percent_data = load_percent_data(stock_path)
+    open_data = load_open_data(stock_path)
+    close_data = load_close_data(stock_path)
     num_obs = percent_data.shape[1]
     data = np.vstack((percent_data, bond(num_obs, INTEREST, FREQ)))
     MARKET_RETURN = np.average(data[MARKET, T:])
@@ -202,9 +208,9 @@ def vary_alpha():
     alphas =[]
     for power in np.linspace(-6,6,12):
         alpha = 10 ** power
-        #avg,var= run_martingaleCAPM(percent_data, T, MARKET_RETURN, recency_weight,alpha,display=False)
-        #avg,var=run_martingale(data, T,alpha,display=False)
-        avg, var = run_weighted_momentum(data, T, alpha, display=False)
+        avg,var= run_CAPM(percent_data, T, MARKET_RETURN, recency_weight,alpha,display=False)
+        #avg,var=run_simple_momentum(data, T,alpha,display=False)
+        #avg, var = run_weighted_momentum(data, T, alpha, display=False)
         #avg, var =run_mean_reversion(open_data, close_data, data, T, alpha,display=False)
         mean_return.append(avg)
         var_return.append(var)
@@ -216,12 +222,12 @@ def vary_alpha():
     #plt.axhline(y=0.023378, color='y', label="Historical Market Variance")
     #plt.axhline(y=0.0000053777, color='g', label="Historical Market Average")
     plt.legend()
-    plt.title("alpha vs Weighted Momentum portfolio return/variance")
-    plt.savefig("vary_alpha_weighted_momentum.png")
+    plt.title("alpha vs CAPM portfolio return/variance")
+    #plt.savefig("vary_alpha_CAPM.png")
     plt.show()
 
 def more_test():
-    INTEREST = 0.05
+    INTEREST = 0.0543
     FREQ = 1 / (365 * 24 * 2)  # fraction of a year
     T = 20
     percent_data = load_percent_data(STOCK_PATHS)
@@ -232,6 +238,7 @@ def more_test():
     for i in range(num_stock):
         print(np.average())
 if __name__ == '__main__':
-    run_trial()
+    yf_path = generate_paths()
+    vary_alpha(STOCK_PATHS)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
