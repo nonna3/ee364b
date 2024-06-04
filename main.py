@@ -15,8 +15,10 @@ STOCK_PATHS = ["./AAPL (20240528123000000 _ 20240429063000000).csv",
                "./SPX (20240528123000000 _ 20240429063000000).csv"
                ]
 N = len(STOCK_PATHS) # number of stocks
+MARKET = -2
+RISK_FREE = -1
 
-def load_data(stock_path):
+def load_percent_data(stock_path):
     stock_percent_change = []
     for i in range(len(stock_path)):
         path = stock_path[i]
@@ -26,22 +28,23 @@ def load_data(stock_path):
     combined_data = np.vstack(stock_percent_change)
     return combined_data
 
+def load_open_data(stock_path):
+    stock = []
+    for i in range(len(stock_path)):
+        path = stock_path[i]
+        open = pd.read_csv(path,thousands=',')['Open'].to_numpy(dtype=float)
+        stock.append(open)
+    combined_data = np.vstack(stock)
+    return combined_data
 
-def recency_weights(beta,T):
-    w = (1-beta)/(1-beta**T)*np.array([beta**i for i in range(0,T)])
-    return w
-
-def martingale_weights(T):
-    w = np.zeros(T)
-    w[-1] = 1
-    return w
-
-def weighted_expectation(X,w):
-    '''
-    X: data
-    w : weights
-    '''
-    return np.average(X, axis=0,weights=w)
+def load_close_data(stock_path):
+    stock = []
+    for i in range(len(stock_path)):
+        path = stock_path[i]
+        close = pd.read_csv(path,thousands=',')['Close'].to_numpy(dtype=float)
+        stock.append(close)
+    combined_data = np.vstack(stock)
+    return combined_data
 
 def find_opt_portfolio(alpha,cov,exp):
     '''
@@ -55,31 +58,102 @@ def find_opt_portfolio(alpha,cov,exp):
     opt = prob.solve()
     return p.value,opt
 
-def run_martingale(X,T):
-    alpha = 1000
+def geometric_weights(T,beta):
+    return (1-beta)/(1-beta**T)*np.array([beta**(T-1-i) for i in range(T)])
+
+def run_mean_reversion(open_data,close_data,X,T,alpha,display=True):
     (num_stocks,num_obs) = X.shape
-    print(X.shape)
     if T > num_obs: raise ValueError("T is incompatible with observation")
-    #num_obs = T+2 #testing
+    returns = []
+    for i in range(0,num_obs-T):
+        period_data = X[:,i:i+T] # percent data
+        period_open = open_data[:,i:i+T]
+        period_close = close_data[:, i:i + T]
+        w = geometric_weights(T, 0.8)
+        expectation = np.zeros(period_data.shape[0])
+        expectation[RISK_FREE]=period_data[RISK_FREE,-1]
+        expectation[:RISK_FREE] = np.divide(0.5*np.average(period_open+period_close,axis=1,weights=w)-open_data[:,i+T],open_data[:,i+T])
+        cov = np.cov(period_data,aweights=w)
+        rho,opt = find_opt_portfolio(alpha,cov,expectation)
+        returns.append(rho.T@X[:,i+T])
+    if display == True:
+        plt.plot(range(len(returns)), returns, label="portfolio returns")
+        plt.plot(X[-1, T:], label="S&P")
+        print(np.average(np.array(returns)))
+        print("S&P avg", np.average(X[MARKET, T:]))
+        plt.legend()
+        plt.title(f'Portfolio of Mean Reversion Model,alpha{alpha}')
+        plt.savefig(f'Mean Reversion,alpha{alpha}')
+        plt.show()
+    return np.average(np.array(returns)),np.var(np.array(returns))
+
+def run_martingale(X,T,alpha,display=True):
+    (num_stocks,num_obs) = X.shape
+    if T > num_obs: raise ValueError("T is incompatible with observation")
     returns = []
     for i in range(0,num_obs-T):
         period_data = X[:,i:i+T]
-        martingale_exp = period_data[:,-1]
-        w = np.linspace(0,1,T,dtype=np.float32) #tentative weights
+        expectation = period_data[:,-1]
+        w = geometric_weights(T,0.8)
         cov = np.cov(period_data,aweights=w)
-        rho,opt = find_opt_portfolio(alpha,cov,martingale_exp)
+        rho,opt = find_opt_portfolio(alpha,cov,expectation)
         returns.append(rho.T@X[:,i+T])
-    plt.plot(range(len(returns)),returns,label="portfolio returns")
-    plt.plot(X[-1,T:],label="S&P")
-    print(np.average(np.array(returns)))
-    print("S&P avg", np.average(X[-1,T:]))
-    plt.legend()
-    #plt.savefig("Portfolio vs S&P weights equal")
-    plt.show()
-    return
-
-def run_momentum():
-    return
+    if display == True:
+        plt.plot(range(len(returns)), returns, label="portfolio returns")
+        plt.plot(X[-1, T:], label="S&P")
+        print(np.average(np.array(returns)))
+        print("S&P avg", np.average(X[MARKET, T:]))
+        plt.legend()
+        plt.title(f'Portfolio of Simple Momentum,alpha{alpha}')
+        plt.savefig(f'Simple Momentum,alpha{alpha}')
+        plt.show()
+    return np.average(np.array(returns)),np.var(np.array(returns))
+def run_weighted_momentum(X,T,alpha,display=True):
+    (num_stocks,num_obs) = X.shape
+    if T > num_obs: raise ValueError("T is incompatible with observation")
+    returns = []
+    for i in range(0,num_obs-T):
+        period_data = X[:,i:i+T]
+        w = geometric_weights(T, 0.8)
+        w_momentum = geometric_weights(T, 0.5)
+        expectation = np.average(period_data,axis=1,weights=w_momentum)
+        cov = np.cov(period_data,aweights=w)
+        rho,opt = find_opt_portfolio(alpha,cov,expectation)
+        returns.append(rho.T@X[:,i+T])
+    if display == True:
+        plt.plot(range(len(returns)), returns, label="portfolio returns")
+        plt.plot(X[-1, T:], label="S&P")
+        print(np.average(np.array(returns)))
+        print("S&P avg", np.average(X[MARKET, T:]))
+        plt.legend()
+        plt.title(f'Portfolio of Weighted Momentum,alpha{alpha}')
+        plt.savefig(f'Weighted Momentum,alpha{alpha}')
+        plt.show()
+    return np.average(np.array(returns)),np.var(np.array(returns))
+def run_martingaleCAPM(X,T,market_return,recency_weight,alpha,display=True):
+    (num_stocks,num_obs) = X.shape
+    if T > num_obs: raise ValueError("T is incompatible with observation")
+    returns = []
+    for i in range(0,num_obs-T):
+        period_data = X[:,i:i+T]
+        w = geometric_weights(T,recency_weight)
+        #market_return = 0.0000053777927 #testing
+        Em_minus_Rf = market_return - X[RISK_FREE,i+T]
+        cov = np.cov(period_data,aweights=w)
+        linear = Em_minus_Rf*cov[MARKET]/cov[MARKET,MARKET]
+        rho,opt = find_opt_portfolio(alpha,cov,linear)
+        returns.append(rho.T@X[:,i+T])
+    if display == True:
+        plt.plot(range(len(returns)), returns, label="portfolio returns")
+        plt.plot(X[-1, T:], label="S&P")
+        print("Portfolio avg", np.average(np.array(returns)))
+        print("S&P avg", np.average(X[MARKET, T:]))
+        print("Portfolio var", np.var(np.array(returns)))
+        print("S&P var", np.var(X[MARKET, T:]))
+        plt.legend()
+        plt.title(f'Portfolio of CAPM, alpha{alpha}')
+        plt.savefig(f'CAPM,alpha{alpha}.png')
+    return np.average(np.array(returns)),np.var(np.array(returns))
 
 def test():
     A = np.array([[1, 1],
@@ -91,16 +165,73 @@ def test():
 
 def bond(num_obs,interest,freq):
     arr = ((1+interest)**(freq)-1)*np.ones((1,num_obs))
-    print(arr)
     return arr
-if __name__ == '__main__':
+
+# for a fixed alpha
+def run_trial():
     INTEREST = 0.05
-    FREQ = 1/(365*24*2)#fraction of a year
+    FREQ = 1 / (365 * 24 * 2)  # fraction of a year
     T = 20
-    data = load_data(STOCK_PATHS)
-    num_obs = data.shape[1]
-    data = np.vstack((data,bond(num_obs,INTEREST,FREQ)))
-    print(data[0][0].dtype)
-    run_martingale(data,T)
+    recency_weight = 0.8
+    alpha = 10
+    percent_data = load_percent_data(STOCK_PATHS)
+    open_data = load_open_data(STOCK_PATHS)
+    close_data = load_close_data(STOCK_PATHS)
+    num_obs = percent_data.shape[1]
+    data = np.vstack((percent_data, bond(num_obs, INTEREST, FREQ)))
+    MARKET_RETURN = np.average(data[MARKET, T:])
+    #run_martingale(data, T,alpha)
+    #run_weighted_momentum(data, T,alpha)
+    #run_mean_reversion(open_data,close_data,data, T, alpha)
+    #run_martingaleCAPM(percent_data, T, MARKET_RETURN, recency_weight,alpha)
+
+def vary_alpha():
+    INTEREST = 0.05
+    FREQ = 1 / (365 * 24 * 2)  # fraction of a year
+    T = 20
+    recency_weight = 0.8
+    percent_data = load_percent_data(STOCK_PATHS)
+    open_data = load_open_data(STOCK_PATHS)
+    close_data = load_close_data(STOCK_PATHS)
+    num_obs = percent_data.shape[1]
+    data = np.vstack((percent_data, bond(num_obs, INTEREST, FREQ)))
+    MARKET_RETURN = np.average(data[MARKET, T:])
+
+    mean_return=[]
+    var_return = []
+    alphas =[]
+    for power in np.linspace(-6,6,12):
+        alpha = 10 ** power
+        #avg,var= run_martingaleCAPM(percent_data, T, MARKET_RETURN, recency_weight,alpha,display=False)
+        #avg,var=run_martingale(data, T,alpha,display=False)
+        avg, var = run_weighted_momentum(data, T, alpha, display=False)
+        #avg, var =run_mean_reversion(open_data, close_data, data, T, alpha,display=False)
+        mean_return.append(avg)
+        var_return.append(var)
+        alphas.append(alpha)
+    plt.semilogx(alphas,mean_return,label="mean")
+    plt.semilogx(alphas, var_return,label="var")
+    plt.axhline(y=np.var(percent_data[MARKET, T:]),color='y',label="Market Variance")
+    plt.axhline(y=np.average(percent_data[MARKET, T:]), color='g',label="Market Average")
+    #plt.axhline(y=0.023378, color='y', label="Historical Market Variance")
+    #plt.axhline(y=0.0000053777, color='g', label="Historical Market Average")
+    plt.legend()
+    plt.title("alpha vs Weighted Momentum portfolio return/variance")
+    plt.savefig("vary_alpha_weighted_momentum.png")
+    plt.show()
+
+def more_test():
+    INTEREST = 0.05
+    FREQ = 1 / (365 * 24 * 2)  # fraction of a year
+    T = 20
+    percent_data = load_percent_data(STOCK_PATHS)
+    open_data = load_open_data(STOCK_PATHS)
+    close_data = load_close_data(STOCK_PATHS)
+    (num_stock, num_obs) = percent_data.shape
+    data = np.vstack((percent_data, bond(num_obs, INTEREST, FREQ)))
+    for i in range(num_stock):
+        print(np.average())
+if __name__ == '__main__':
+    run_trial()
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
